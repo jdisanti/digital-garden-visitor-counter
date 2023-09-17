@@ -5,6 +5,8 @@ to an AWS account, and also creates the necessary DynamoDB table and permissions
 
 ## Useful commands
 
+Note: Use the Justfile in the repository root for building and synthesizing the Lambda.
+
 * `npm run build`: compile typescript to js
 * `npm run watch`: watch for changes and compile
 * `npm run test`: perform the jest unit tests
