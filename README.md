@@ -12,6 +12,12 @@ with CSS to get different colors, borders, background colors, etc.
 As an example, this README has been visited this many times:
 ![visit count](https://u3u6op73cfwfucgfi4lyfeusfa0gsndu.lambda-url.us-west-2.on.aws/?name=repo-readme)
 
+Note: The above count doesn't benefit from deduplication since GitHub is proxying it through Camo, which
+anonymizes the request, and thus, frequently increments the count. That is why you'll see the number increase
+if you refresh the page when there are no other visitors. When viewing it
+[outside of GitHub](https://u3u6op73cfwfucgfi4lyfeusfa0gsndu.lambda-url.us-west-2.on.aws/?name=repo-readme),
+it will successfully deduplicate.
+
 ## Required tools for building
 
 The following are needed to build and deploy this Lambda:
