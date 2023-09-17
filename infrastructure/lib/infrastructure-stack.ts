@@ -65,12 +65,12 @@ export class InfrastructureStack extends Stack {
         );
         counterTable.grantReadWriteData(executionRole);
 
-        const allowedNamesParam = new CfnParameter(this, "allowed-names", {
+        const allowedNamesParam = new CfnParameter(this, "allowedNames", {
             type: "String",
             description: "Comma-separated list of allowed counter names",
             default: "default,repo-readme",
         });
-        const minWidthParam = new CfnParameter(this, "min-width", {
+        const minWidthParam = new CfnParameter(this, "minWidth", {
             type: "String",
             description: "Minimum width of the counter in digits",
             default: "5",
