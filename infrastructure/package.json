@@ -1,12 +1,33 @@
 {
-  "name": "infrastructure",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "author": "",
-  "license": "GPL-3.0",
-  "private": true
+    "name": "infrastructure",
+    "version": "1.0.0",
+    "license": "GPL-3.0",
+    "private": true,
+    "bin": {
+        "infrastructure": "build/bin/infrastructure.js"
+    },
+    "scripts": {
+        "fmt": "prettier --write \"**/*.{ts,json}\"",
+        "build": "tsc",
+        "watch": "tsc -w",
+        "cdk": "cdk"
+    },
+    "devDependencies": {
+        "@types/node": "20.5.9",
+        "aws-cdk": "2.96.2",
+        "prettier": "^3.0.3",
+        "ts-node": "^10.9.1",
+        "typescript": "~5.2.2"
+    },
+    "dependencies": {
+        "aws-cdk-lib": "2.96.2",
+        "constructs": "^10.0.0",
+        "source-map-support": "^0.5.21"
+    },
+    "prettier": {
+        "tabWidth": 4,
+        "singleQuote": false,
+        "semi": true,
+        "trailingComma": "all"
+    }
 }
