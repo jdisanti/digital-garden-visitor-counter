@@ -51,20 +51,29 @@ impl Config {
     }
 }
 
+fn not_found() -> Response<Body> {
+    Response::builder()
+        .status(404)
+        .body(Body::Empty)
+        .expect("valid response")
+}
+
 async fn function_handler(
     config: Arc<Config>,
     store: Arc<Store>,
     event: Request,
 ) -> Result<Response<Body>, Error> {
+    // Don't respond to non-root requests, such as `/favicon.ico`.
+    if event.uri().path() != "/" {
+        return Ok(not_found());
+    }
+
     // Extract some information from the request.
     let request_info = match RequestInfo::try_from(&event) {
         Ok(info) => info,
         // Quickly reject bots to avoid inflating the counter and reduce costs.
         Err(RequestInfoError::LooksLikeABot) => {
-            return Ok(Response::builder()
-                .status(404)
-                .body(Body::Empty)
-                .expect("valid response"));
+            return Ok(not_found());
         }
         Err(err) => return Err(err.into()),
     };
@@ -80,10 +89,7 @@ async fn function_handler(
 
     // Security: Reject any names that are not allow listed.
     if !config.allowed_names.iter().any(|name| name == count_name) {
-        return Ok(Response::builder()
-            .status(404)
-            .body(Body::Empty)
-            .expect("valid response"));
+        return Ok(not_found());
     }
 
     // Privacy: This only temporarily stores a 32-bit hash of the visitor's IP and user agent
