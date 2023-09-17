@@ -29,6 +29,8 @@ struct Config {
     table_name: String,
     /// Minimum width of the rendered image in number of characters.
     min_width: usize,
+    /// Allowed counter names, set by the `GHC_ALLOWED_NAMES` environment variable (comma-delimited).
+    allowed_names: Vec<String>,
 }
 
 impl Config {
@@ -41,6 +43,10 @@ impl Config {
                 .ok()
                 .map(|n| n.parse().unwrap())
                 .unwrap_or(5),
+            allowed_names: std::env::var("DGVC_ALLOWED_NAMES")
+                .ok()
+                .map(|s| s.split(',').map(String::from).collect())
+                .unwrap_or_else(|| vec!["default".into()]),
         }
     }
 }
@@ -71,6 +77,14 @@ async fn function_handler(
         .query_string_parameters_ref()
         .and_then(|params| params.first("name"))
         .unwrap_or("default");
+
+    // Security: Reject any names that are not allow listed.
+    if !config.allowed_names.iter().any(|name| name == count_name) {
+        return Ok(Response::builder()
+            .status(404)
+            .body(Body::Empty)
+            .expect("valid response"));
+    }
 
     // Privacy: This only temporarily stores a 32-bit hash of the visitor's IP and user agent
     // so that we can roughly track uniqueness without storing any identifying information.

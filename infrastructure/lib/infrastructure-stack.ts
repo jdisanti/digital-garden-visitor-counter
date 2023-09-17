@@ -68,8 +68,9 @@ export class InfrastructureStack extends Stack {
             architecture: Architecture.ARM_64,
             code: Code.fromAsset("build/bootstrap/bootstrap.zip"),
             environment: {
-                DGVC_TABLE_NAME: counterTable.tableName,
+                DGVC_ALLOWED_NAMES: "default,repo-readme",
                 DGVC_MIN_WIDTH: "5",
+                DGVC_TABLE_NAME: counterTable.tableName,
                 RUST_BACKTRACE: "1",
             },
             functionName: "digital-garden-visitor-counter",
