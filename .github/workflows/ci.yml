@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: 1.72.0
+        components: clippy, rustfmt
+    - name: Set up Rust cache
+      uses: Swatinem/rust-cache@v2
+    - name: Install just
+      uses: taiki-e/install-action@v2
+      with:
+        tool: just
+    - name: Test
+      run: just test
