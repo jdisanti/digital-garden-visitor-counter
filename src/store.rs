@@ -15,6 +15,27 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+//! Count and recent visitor storage in DynamoDB.
+//!
+//! This module provides an abstraction over the DynamoDB table used to store
+//! counts and recent visitors.
+//!
+//! The Lambda is able to store multiple counters in a single DynamoDB table,
+//! and a single item is used for each counter. The item's key is the counter
+//! name, and the item has two attributes: `count` and `value`. The `count`
+//! is just the current counter value, and `value` is a CBOR encoded list
+//! of recent visitors. Only a 32-bit hash of the visitor's IP and user agent,
+//! and the time they were last seen are stored.
+//!
+//! The 400 KB maximum item size is taken into account, and the recent visitors
+//! list is culled if it starts getting too long. Additionally, visitors that
+//! haven't been seen in a while are removed from the list.
+//!
+//! Optimistic locking via conditional expressions is used to prevent concurrent
+//! Lambda invocations from overwriting each other's updates. If a Lambda invocation
+//! fails to update the item due to the condition failing, it will reload the current count
+//! and reapply its update up to 5 times before giving up.
+
 use crate::request_info::RequestInfo;
 use aws_config::{retry::RetryConfig, timeout::TimeoutConfig};
 use aws_sdk_dynamodb::{
@@ -36,26 +57,39 @@ use std::{
 };
 
 const MAX_ATTEMPTS_FOR_OPTIMISTIC_LOCKING: usize = 5;
+
+/// This value was chosen so that the stored timestamp could be 32-bits
+/// and still work well into the future.
 const TIMESTAMP_OFFSET: u64 = 1_690_000_000;
+
+/// How long a visitor is kept in the recent visitors list before being pruned.
 const RECENT_CUTOFF: Duration = Duration::from_secs(7200); // 2 hours
 
 type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 
+/// Trait representing the only operations we use in the DynamoDB client.
+///
+/// This is a trait so that the Dynamo calls can be trivially mocked in unit tests.
 trait Dynamo {
+    /// Get an item from DynamoDB.
     fn get_item(
         &self,
         input: GetItemInputBuilder,
     ) -> BoxFuture<Result<GetItemOutput, SdkError<GetItemError>>>;
 
+    /// Put an item to DynamoDB.
     fn put_item(
         &self,
         input: PutItemInputBuilder,
     ) -> BoxFuture<Result<PutItemOutput, SdkError<PutItemError>>>;
 }
 
+/// A client that can be switched between real and fake modes for testing.
 #[derive(Clone)]
 enum DynamoClient {
+    /// The real DynamoDB client.
     Real(Client),
+    /// A fake client with mocked calls for testing.
     #[cfg(test)]
     Fake(std::sync::Arc<dyn Dynamo>),
 }
@@ -90,6 +124,7 @@ impl Dynamo for DynamoClient {
     }
 }
 
+/// The stored representation of a visitor.
 #[derive(Copy, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 struct StoredVisitor {
@@ -118,9 +153,12 @@ impl From<Visitor> for StoredVisitor {
     }
 }
 
+/// A visitor to the site.
 #[derive(Copy, Clone, Debug)]
 pub struct Visitor {
+    /// Hashed source IP and user agent.
     pub tag: u32,
+    /// Time last seen.
     pub last_seen: SystemTime,
 }
 
@@ -158,6 +196,8 @@ impl From<&RequestInfo> for Visitor {
     }
 }
 
+/// Stored representation of a count entry. This becomes the value of the
+/// "value" attribute in DynamoDB, and is stored as a CBOR blob.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct StoredCountEntry {
     #[serde(rename = "v")]
@@ -189,6 +229,7 @@ impl From<&CountEntry> for StoredCountEntry {
     }
 }
 
+/// A count, and the most recent visitors contributing to that count.
 #[derive(Debug, Default)]
 pub struct CountEntry {
     pub count: u64,
@@ -208,6 +249,7 @@ impl From<StoredCountEntry> for CountEntry {
     }
 }
 
+/// An abstraction over count storage in DynamoDB.
 #[derive(Clone)]
 pub struct Store {
     client: DynamoClient,
@@ -215,16 +257,24 @@ pub struct Store {
 }
 
 impl Store {
+    /// Creates a new `Store` with the given table name.
     pub async fn new(table_name: impl Into<String>) -> Self {
-        let timeout = Duration::from_millis(500);
+        // The SDK has really high default connect/read timeouts for this use-case since
+        // DynamoDB usually responds in less than 10 milliseconds. It also doesn't have
+        // a default operation timeout, which means if the server connects and responds
+        // with partial content and then hangs, the Lambda could hang indefinitely.
+        // Therefore, change the configuration to reduce overall wait time and avoid an
+        // infinitely hanging Lambda.
+        let connect_read_timeout = Duration::from_millis(100);
         let config = aws_config::from_env()
             .timeout_config(
                 TimeoutConfig::builder()
-                    .connect_timeout(timeout)
-                    .read_timeout(timeout)
-                    .operation_timeout(timeout)
+                    .connect_timeout(connect_read_timeout)
+                    .read_timeout(connect_read_timeout)
+                    .operation_timeout(Duration::from_millis(200))
                     .build(),
             )
+            // Reduce the number of retry attempts to avoid spending too much time.
             .retry_config(RetryConfig::standard().with_max_attempts(2))
             .load()
             .await;
@@ -234,6 +284,7 @@ impl Store {
         }
     }
 
+    /// Creates a `Store` with a mocked DynamoDB client for testing.
     #[cfg(test)]
     fn fake(table_name: impl Into<String>, dynamo: impl Dynamo + 'static) -> Self {
         Self {
@@ -242,6 +293,7 @@ impl Store {
         }
     }
 
+    /// Loads a count entry with the given name from DynamoDB.
     async fn get_count_entry(&self, name: &str) -> Result<Option<CountEntry>, BoxError> {
         // Load the row from DynamoDB.
         let input = GetItemInput::builder()
@@ -278,6 +330,11 @@ impl Store {
         Ok(Some(entry))
     }
 
+    /// Creates a new count entry.
+    ///
+    /// Returns true if the creationg succeeded, and false if another invocation
+    /// created the entry before this one did. In that case, the caller should
+    /// retry as an update instead of a creation.
     async fn try_put_new_count_entry(
         &self,
         name: &str,
@@ -305,6 +362,10 @@ impl Store {
         }
     }
 
+    /// Try to update an existing count entry.
+    ///
+    /// Returns true if the update succeeded, and false if there was a conditional check failure.
+    /// The conditional check failure indicates the update should be retried.
     async fn try_put_count_entry(
         &self,
         name: &str,
@@ -329,6 +390,7 @@ impl Store {
         }
     }
 
+    /// Find the given visitor in the recent visitor list by tag, and return a mutable reference to it.
     fn find_recent_mut(
         count_entry: &mut CountEntry,
         visitor: Visitor,
@@ -405,6 +467,7 @@ impl Store {
     }
 }
 
+/// Convert a slice of bytes into a single u32, assuming the bytes are in native endian format.
 fn u32_from_ne_bytes(bytes: &[u8]) -> u32 {
     let mut buf = [0; size_of::<u32>()];
     buf.copy_from_slice(bytes);

@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+//! Request information extraction and bot detection.
+
 use isbot::Bots;
 use lambda_http::{request::RequestContext, Request, RequestExt};
 use once_cell::sync::Lazy;
@@ -23,6 +25,7 @@ use std::{error::Error as StdError, fmt};
 /// Initialize the bot checker once and reuse it for every request.
 static BOT_CHECKER: Lazy<Bots> = Lazy::new(Bots::default);
 
+/// An error extracting request information from the request.
 #[derive(Debug)]
 pub enum RequestInfoError {
     /// The request is missing a user agent.
@@ -45,14 +48,20 @@ impl fmt::Display for RequestInfoError {
     }
 }
 
+/// Information extracted from a request that is needed to
+/// semi-uniquely identify a visitor to avoid inflation of the counter.
 pub struct RequestInfo {
+    /// User agent header value.
     pub user_agent: String,
+    /// Source IP address, which can be in IPv4 or IPv6 format.
     pub source_ip: String,
 }
 
 impl TryFrom<&Request> for RequestInfo {
     type Error = RequestInfoError;
 
+    /// Try to extract request information from the request, and return
+    /// an error for any request that looks like its from a bot.
     fn try_from(value: &Request) -> Result<Self, Self::Error> {
         let RequestContext::ApiGatewayV2(context) = value
             .request_context_ref()
@@ -62,6 +71,8 @@ impl TryFrom<&Request> for RequestInfo {
             .user_agent
             .as_ref()
             .ok_or(RequestInfoError::MissingUserAgent)?;
+
+        // Reject bots that are identified by the user agent.
         if BOT_CHECKER.is_bot(user_agent) {
             return Err(RequestInfoError::LooksLikeABot);
         }

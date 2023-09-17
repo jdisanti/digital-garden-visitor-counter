@@ -15,6 +15,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+//! A visitor counter for digital gardens that runs as an AWS Lambda function
+//! and stores its count and recent visitors in DynamoDB.
+
 pub mod counter;
 pub mod request_info;
 pub mod store;

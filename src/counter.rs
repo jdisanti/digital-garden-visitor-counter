@@ -15,12 +15,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+//! Counter image rendering.
+
 use std::mem::size_of;
 
+/// A rendered counter.
 pub struct Render {
+    /// Width in pixels.
     pub width: usize,
+    /// Height in pixels.
     pub height: usize,
-    // In 32-bit RGBA format
+    /// Pixels in 32-bit RGBA format
     pub pixels: Vec<u8>,
 }
 
