@@ -98,6 +98,7 @@ async fn function_handler(
 
     Ok(Response::builder()
         .status(200)
+        .header("cache-control", "no-cache")
         .header("content-type", "image/png")
         .header("content-length", png_bytes.len())
         .header("x-count-name", count_name)
