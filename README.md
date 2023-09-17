@@ -5,6 +5,10 @@ It functions as an AWS Lambda Funtion URL that renders a PNG image while also in
 in a DynamoDB table. Multiple counters are supported, and differentiated by name. Visits are best-effort
 deduplicated by keeping track of the hashes of IP and user agent, and the time that the visit occurred.
 
+The font in the generated counter image is intentionally pixelated, and is supposed to resemble
+old hit counters from 90s and early 2000s websites (think GeoCities). The image can be styled
+with CSS to get different colors, borders, background colors, etc.
+
 As an example, this README has been visited this many times:
 ![visit count](https://u3u6op73cfwfucgfi4lyfeusfa0gsndu.lambda-url.us-west-2.on.aws/?name=repo-readme)
 
