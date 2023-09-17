@@ -354,7 +354,8 @@ impl Store {
         );
         let input = PutItemInput::builder()
             .table_name(&self.table_name)
-            .condition_expression("attribute_not_exists(key)")
+            .condition_expression("attribute_not_exists(#k)")
+            .expression_attribute_names("#k", "key")
             .item("key", AttributeValue::S(name.into()))
             .item("count", AttributeValue::N("1".into()))
             .item("value", AttributeValue::B(value));
@@ -381,7 +382,8 @@ impl Store {
         let value = Blob::new(StoredCountEntry::from(entry).to_cbor()?);
         let input = PutItemInput::builder()
             .table_name(&self.table_name)
-            .condition_expression("count == :count")
+            .condition_expression("#c = :count")
+            .expression_attribute_names("#c", "count")
             .expression_attribute_values(":count", AttributeValue::N(initial_count.to_string()))
             .item("key", AttributeValue::S(name.into()))
             .item("count", AttributeValue::N(entry.count.to_string()))
@@ -627,9 +629,18 @@ mod store_tests {
     ) {
         assert_eq!("test", put.table_name.as_ref().unwrap(), "wrong table name");
         assert_eq!(
-            "count == :count",
+            "#c = :count",
             put.condition_expression.as_ref().unwrap(),
             "wrong condition expression"
+        );
+        assert_eq!(
+            "count",
+            put.expression_attribute_names
+                .as_ref()
+                .unwrap()
+                .get("#c")
+                .unwrap(),
+            "wrong expression attribute name"
         );
         assert_eq!(
             &AttributeValue::N(initial_count.to_string()),
@@ -709,7 +720,8 @@ mod store_tests {
                 // Verify the input to the DynamoDB PutItem call.
                 let input = input.build().unwrap();
                 assert_eq!("test", input.table_name.as_ref().unwrap(), "wrong table name");
-                assert_eq!("attribute_not_exists(key)", input.condition_expression.as_ref().unwrap(), "wrong condition expression");
+                assert_eq!("attribute_not_exists(#k)", input.condition_expression.as_ref().unwrap(), "wrong condition expression");
+                assert_eq!("key", input.expression_attribute_names.as_ref().unwrap().get("#k").unwrap(), "wrong expression attribute name");
                 assert_eq!(None, input.expression_attribute_values.as_ref(), "there shouldn't be expression attrs");
 
                 let item = input.item.as_ref().unwrap();
