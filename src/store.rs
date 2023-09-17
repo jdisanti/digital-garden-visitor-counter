@@ -57,6 +57,11 @@ use std::{
 };
 
 const MAX_ATTEMPTS_FOR_OPTIMISTIC_LOCKING: usize = 5;
+const DYNAMO_MAX_ITEM_SIZE_BYTES: usize = 400_000;
+const RESERVED_NON_VALUE_SIZE_BYTES: usize = 1024;
+const SIZE_SINGLE_VISITOR_BYTES: usize = 15;
+const MAX_RECENT_VISITORS: usize =
+    (DYNAMO_MAX_ITEM_SIZE_BYTES - RESERVED_NON_VALUE_SIZE_BYTES) / SIZE_SINGLE_VISITOR_BYTES;
 
 /// This value was chosen so that the stored timestamp could be 32-bits
 /// and still work well into the future.
@@ -155,6 +160,7 @@ impl From<Visitor> for StoredVisitor {
 
 /// A visitor to the site.
 #[derive(Copy, Clone, Debug)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct Visitor {
     /// Hashed source IP and user agent.
     pub tag: u32,
@@ -407,6 +413,28 @@ impl Store {
             })
     }
 
+    /// Removes visitors from the recent visitors list that haven't been seen recently,
+    /// or the oldest visitors if the list is getting too long.
+    fn prune_visitors(count_entry: &mut CountEntry, now: SystemTime, max_recent: usize) {
+        let visitors = std::mem::take(&mut count_entry.recent_visitors);
+        count_entry.recent_visitors = visitors
+            .into_iter()
+            .filter(|v| {
+                now.duration_since(v.last_seen)
+                    .expect("now is after last_seen")
+                    < RECENT_CUTOFF
+            })
+            .collect();
+        if count_entry.recent_visitors.len() > max_recent {
+            // Sort descending by last seen time.
+            count_entry
+                .recent_visitors
+                .sort_by(|left, right| right.last_seen.cmp(&left.last_seen));
+            // Cull the oldest by truncating.
+            count_entry.recent_visitors.truncate(max_recent);
+        }
+    }
+
     /// Increment the number of visitors (if this visitor is recently unique), and return the count.
     pub async fn maybe_increment_visitors(
         &self,
@@ -433,15 +461,7 @@ impl Store {
                 }
 
                 // Prune old visitors
-                let visitors = std::mem::take(&mut count_entry.recent_visitors);
-                count_entry.recent_visitors = visitors
-                    .into_iter()
-                    .filter(|v| {
-                        now.duration_since(v.last_seen)
-                            .expect("now is after last_seen")
-                            < RECENT_CUTOFF
-                    })
-                    .collect();
+                Self::prune_visitors(count_entry, now, MAX_RECENT_VISITORS);
 
                 // Update the entry in DynamoDB.
                 if self
@@ -884,5 +904,54 @@ mod store_tests {
             .await
             .unwrap();
         assert_eq!(1235, result);
+    }
+
+    #[test]
+    fn recents_list_size() {
+        let mut entry = StoredCountEntry {
+            recent_visitors: Vec::new(),
+        };
+
+        let empty_size = entry.to_cbor().unwrap().len();
+        entry
+            .recent_visitors
+            .push(StoredVisitor::new(u32::MAX, u32::MAX));
+        let single_size = entry.to_cbor().unwrap().len() - empty_size;
+        assert_eq!(
+            SIZE_SINGLE_VISITOR_BYTES, single_size,
+            "update the constant if this fails"
+        );
+
+        entry.recent_visitors = vec![StoredVisitor::new(u32::MAX, u32::MAX); MAX_RECENT_VISITORS];
+        let full_size = entry.to_cbor().unwrap().len();
+        assert!(
+            full_size <= DYNAMO_MAX_ITEM_SIZE_BYTES - RESERVED_NON_VALUE_SIZE_BYTES,
+            "full size {full_size} should be less than or equal to {}",
+            DYNAMO_MAX_ITEM_SIZE_BYTES - RESERVED_NON_VALUE_SIZE_BYTES
+        );
+    }
+
+    #[test]
+    fn prune_oldest_after_reaching_max_recents() {
+        let mut entry = CountEntry {
+            count: 1,
+            recent_visitors: vec![
+                Visitor::new(5, system_time(10)),
+                Visitor::new(2, system_time(100)),
+                Visitor::new(4, system_time(25)),
+                Visitor::new(1, system_time(150)),
+                Visitor::new(3, system_time(50)),
+            ],
+        };
+
+        Store::prune_visitors(&mut entry, system_time(150), 3);
+        assert_eq!(
+            &[
+                Visitor::new(1, system_time(150)),
+                Visitor::new(2, system_time(100)),
+                Visitor::new(3, system_time(50)),
+            ][..],
+            &entry.recent_visitors,
+        );
     }
 }
