@@ -21,6 +21,7 @@ import {
     Duration,
     CfnOutput,
     CfnResource,
+    CfnParameter,
 } from "aws-cdk-lib";
 import { AttributeType, BillingMode, Table } from "aws-cdk-lib/aws-dynamodb";
 import { ManagedPolicy, Role, ServicePrincipal } from "aws-cdk-lib/aws-iam";
@@ -64,12 +65,23 @@ export class InfrastructureStack extends Stack {
         );
         counterTable.grantReadWriteData(executionRole);
 
+        const allowedNamesParam = new CfnParameter(this, "allowed-names", {
+            type: "String",
+            description: "Comma-separated list of allowed counter names",
+            default: "default,repo-readme",
+        });
+        const minWidthParam = new CfnParameter(this, "min-width", {
+            type: "String",
+            description: "Minimum width of the counter in digits",
+            default: "5",
+        });
+
         const counterLambda = new Function(this, "counter-lambda", {
             architecture: Architecture.ARM_64,
             code: Code.fromAsset("build/bootstrap/bootstrap.zip"),
             environment: {
-                DGVC_ALLOWED_NAMES: "default,repo-readme",
-                DGVC_MIN_WIDTH: "5",
+                DGVC_ALLOWED_NAMES: allowedNamesParam.valueAsString,
+                DGVC_MIN_WIDTH: minWidthParam.valueAsString,
                 DGVC_TABLE_NAME: counterTable.tableName,
                 RUST_BACKTRACE: "1",
             },
