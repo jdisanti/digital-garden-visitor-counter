@@ -26,6 +26,7 @@ tracing-subscriber = { version = "0.3.17", features = ["fmt"] }
 
 [dev-dependencies]
 aws-smithy-http = "0.56.1"
+criterion = "0.5.1"
 http = "0.2.9"
 
 [profile.release]
@@ -35,3 +36,7 @@ incremental = false
 lto = true
 opt-level = 3
 panic = "abort"
+
+[[bench]]
+name = "render"
+harness = false
